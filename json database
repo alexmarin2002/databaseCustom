@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "lic",
+  "private_key_id": "",
+  "private_key": "-----h1hXvi9yf+Jn7owgdvpkK/8hG4UeJXVupVIgxcQq\nrtTkwDfrY92VU49z8ZqkYGJy0524zWpQh/eO3IsfDx1LMiYwDfKqDOy4R2j+UU02\nw6u9afLg+tUost7TygjNdm0V32eksOyuunbof4ePWfiROnm100E0pn36kRhvn6CO\n/s/OkYwxAgMBAAECggEAA8eAFwW4Txu9wIvDhobYj7RTg5ReDErjYwYjeTuBEz3w\nS/dPWe6PuSq5uol5/HrbqXQfhbAUNkksZxRMqRIAMUeSCy8b90x9IGmFtK/v07JN\n6HkSjxaD58ECez5dZTIy3e1VD3bieDrOQ8+97PS4krOpGGkl0nwZTDfv46PubJ7Z\nKOh4adlZfyy+vt4yZjn9X/Y1coqfrGKiCYkin6itgYmI5JXLBcBtCDXAKLCQzuto\nA5yZrG63V3FA35vHHe5yJWmXl13aNHNKlIuF3vPFoxDmeGfwlWT/M9ehQIV8vB7k\nro4QrkoWPAr5GwDaqCuVPMG9rzirSfBiyA0eKKinzwKBgQDQRRkle34t/HS628G/\noW8WByEs83hk6iNsPQpA8YkQAvbws/+BDRGdv0HyE0bDIuxCe5p9Dg4ssDSLPFwq\nP4zddosbe7qxynT3Y/vqBKcnUBvPrx2ba6F0ftQ5Chb0KNoRJT/x33ktTpl10RIk\n7C3pnPsrpujhrR34s4hXmKGx2wKBgQDMS6D/CZrrRjEQ0aUN7aC2L7VS9sVhgsq/\n+GePCuy+iPXPxeuDjVkmUaOWdR4bYeydOorzCVsVr4nM4xkjGhjLo4J0/J2vzYYX\n7jOTGguV+R2Jko/mk8c+9ws18t87LpF7cIT3RkBxe/WDLyNeZUwdgm8Y6PDUqsce\n7mpikqO14wKBgCBbe+qs4w+191TIq7NgG2gqt2bKdNwI3HQGj79DR24rZ75B2OJt\n61y8yDwZ7paGqHozxe7D7kPXJHK1cARIV1RZBIfCk2Dn+YAuEodrLaUX9xovNMRe\n1njI86PhA2vvpOGhDexAMg1t9r2tO8psvz1aXFON3QSi5tMq4XXqisSdAoGAXoSr\nEvPtseaCsuZbt+r2DPRbruuu/GNXzKNvvjVuvOR+3ccTJIUT9u+UgPrkmAShRUkd\nmj383zacyadULPJZAHZA2EE772dmH9I8GFXXgGaGLO0bGLHMYCxKCoa4kxgDhRnU\n2tas4BRazXvUoEq7gXekUOEM80ej4oKpw7tWdMMCgYBul3z1mFV1VSvTuGOMlU4f\nRTpvvXT6TEOjAugVOTSoplzoAC23YZktVq4R7+K62rzrw6OFZpI416xCSYgARNY7\ntJbGzsYr/Ik4OpxCaMMaVAZkAS22lZg2sjGRK2o/9ttc/3Serj96TcpI4tOYPPg4\n5KE8lu1eNRedvaXKi4ywUQ==\n-----END PRIVATE KEY-----\n",
+  "client_email": "firebase-adminsdk-fbsvc@licensecheck-ee984.iam.gserviceaccount.com",
+  "client_id": "116298171040065538944",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-fbsvc%40licensecheck-ee984.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
