@@ -1,0 +1,165 @@
+# admin_tool.py
+import firebase_admin
+from firebase_admin import credentials, firestore
+from datetime import datetime
+import random
+import string
+
+
+SERVICE_ACCOUNT_KEY = "serviceAccountKey.json"
+COLLECTION_NAME     = "AAAA-BBBB-CCCC-2222"
+
+cred = credentials.Certificate(SERVICE_ACCOUNT_KEY)
+firebase_admin.initialize_app(cred)
+db = firestore.client()
+
+def col():
+    """Returns the licenses collection reference."""
+    return db.collection(COLLECTION_NAME)
+
+def generate_key():
+    parts = []
+    for _ in range(3):
+        parts.append(''.join(random.choices(string.ascii_uppercase, k=4)))
+    parts.append(''.join(random.choices(string.digits, k=4)))
+    return '-'.join(parts)
+
+def parse_duration(duration_str: str) -> str:
+    """
+    Accepts formats like:
+      1h  → 1 hour
+      12h → 12 hours
+      1d  → 1 day
+      7d  → 7 days
+      30d → 30 days
+      1m  → 1 month (30 days)
+    Returns a clean string to store e.g. "7d", "12h"
+    """
+    duration_str = duration_str.strip().lower()
+    value = int(duration_str[:-1])
+    unit  = duration_str[-1]
+    if unit not in ('h', 'd', 'm'):
+        raise ValueError("Unit must be h (hours), d (days), or m (months)")
+    if value <= 0:
+        raise ValueError("Duration must be positive")
+    return f"{value}{unit}"
+
+def add_license(duration: str, owner: str = ""):
+    """Add a new floating license — expiry starts on first use"""
+    key = generate_key()
+    col().document(key).set({
+        "active"  : True,
+        "expiry"  : "",          # empty until first login
+        "duration": duration,    # e.g. "7d", "12h", "1m"
+        "hwid"    : "",
+        "owner"   : owner,
+        "token"   : 1000,        # magic value — must match EXPECTED_TOKEN in C++
+        "created" : datetime.now().isoformat()
+    })
+    print(f"✓ Created license: {key}  (duration: {duration})")
+    return key
+
+def deactivate_license(key: str):
+    col().document(key).update({"active": False})
+    print(f"✓ Deactivated: {key}")
+
+def activate_license(key: str):
+    col().document(key).update({"active": True})
+    print(f"✓ Activated: {key}")
+
+def update_expiry(key: str, new_expiry: str):
+    col().document(key).update({"expiry": new_expiry})
+    print(f"✓ Updated expiry for {key} → {new_expiry}")
+
+def update_duration(key: str, new_duration: str):
+    """Change duration (only useful before first login)"""
+    col().document(key).update({"duration": new_duration})
+    print(f"✓ Updated duration for {key} → {new_duration}")
+
+def reset_hwid(key: str):
+    """Allow license to activate on a new machine"""
+    col().document(key).update({"hwid": ""})
+    print(f"✓ HWID reset for {key}")
+
+def reset_expiry(key: str):
+    """Reset expiry so the timer restarts on next login"""
+    col().document(key).update({"expiry": ""})
+    print(f"✓ Expiry reset for {key} — timer restarts on next login")
+
+def list_licenses():
+    docs = col().stream()
+    print(f"\n{'KEY':<25} {'ACTIVE':<8} {'DURATION':<10} {'EXPIRY':<22} {'TOKEN':<8} {'HWID':<18} {'OWNER'}")
+    print("-" * 110)
+    for doc in docs:
+        d = doc.to_dict()
+        hwid = d.get('hwid', '')
+        hwid_short = hwid[:8] + "..." if hwid else "not set"
+        print(f"{doc.id:<25} {str(d.get('active','?')):<8} {d.get('duration','?'):<10} "
+              f"{d.get('expiry','not started'):<22} {str(d.get('token','?')):<8} "
+              f"{hwid_short:<18} {d.get('owner','')}")
+
+def delete_license(key: str):
+    col().document(key).delete()
+    print(f"✓ Deleted: {key}")
+
+def menu():
+    print(f"\n  Collection: {COLLECTION_NAME}")
+    while True:
+        print("\n=== LICENSE ADMIN TOOL ===")
+        print("1.  Generate new license key")
+        print("2.  Deactivate a key")
+        print("3.  Activate a key")
+        print("4.  Update expiry date manually")
+        print("5.  Update duration (before first use)")
+        print("6.  Reset HWID (allow new machine)")
+        print("7.  Reset expiry (restart timer)")
+        print("8.  List all licenses")
+        print("9.  Delete a key")
+        print("0.  Exit")
+        choice = input("\nChoice: ").strip()
+
+        if choice == "1":
+            print("Duration examples: 1h, 12h, 1d, 7d, 30d, 1m")
+            duration = parse_duration(input("Duration: ").strip())
+            owner    = input("Owner name (optional): ").strip()
+            add_license(duration, owner)
+
+        elif choice == "2":
+            key = input("License key: ").strip()
+            deactivate_license(key)
+
+        elif choice == "3":
+            key = input("License key: ").strip()
+            activate_license(key)
+
+        elif choice == "4":
+            key    = input("License key: ").strip()
+            expiry = input("New expiry (YYYY-MM-DD HH:MM): ").strip()
+            update_expiry(key, expiry)
+
+        elif choice == "5":
+            key      = input("License key: ").strip()
+            duration = parse_duration(input("New duration: ").strip())
+            update_duration(key, duration)
+
+        elif choice == "6":
+            key = input("License key: ").strip()
+            reset_hwid(key)
+
+        elif choice == "7":
+            key = input("License key: ").strip()
+            reset_expiry(key)
+
+        elif choice == "8":
+            list_licenses()
+
+        elif choice == "9":
+            key = input("License key to DELETE: ").strip()
+            if input("Are you sure? (yes/no): ").strip() == "yes":
+                delete_license(key)
+
+        elif choice == "0":
+            break
+
+if __name__ == "__main__":
+    menu()
