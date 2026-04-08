@@ -1,0 +1,369 @@
+#pragma once
+
+#include <windows.h>
+#include <winhttp.h>
+#include <intrin.h>
+#include <iphlpapi.h>
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <sstream>
+#include <iomanip>
+#pragma comment(lib, "winhttp.lib")
+#pragma comment(lib, "iphlpapi.lib")
+
+
+const std::wstring PROJECT_ID = L"licensecheck-ee984";
+const std::wstring COLLECTION_NAME = L"AAAA-BBBB-CCCC-2222";
+
+
+
+static std::string simpleHash(const std::string& input) {
+    unsigned long long hash = 14695981039346656037ULL;
+    for (unsigned char c : input) {
+        hash ^= c;
+        hash *= 1099511628211ULL;
+    }
+    std::ostringstream oss;
+    oss << std::hex << std::uppercase << std::setfill('0') << std::setw(16) << hash;
+    return oss.str();
+}
+
+static std::string getHWID() {
+    std::string raw;
+
+    int cpuInfo[4] = {};
+    __cpuid(cpuInfo, 1);
+    std::ostringstream cpu;
+    cpu << std::hex << cpuInfo[0] << cpuInfo[3];
+    raw += cpu.str();
+
+    DWORD serial = 0;
+    GetVolumeInformationA("C:\\", NULL, 0, &serial, NULL, NULL, NULL, 0);
+    std::ostringstream vol;
+    vol << std::hex << serial;
+    raw += vol.str();
+
+    IP_ADAPTER_INFO adapters[16];
+    DWORD bufLen = sizeof(adapters);
+    if (GetAdaptersInfo(adapters, &bufLen) == ERROR_SUCCESS) {
+        std::ostringstream mac;
+        for (int i = 0; i < 6; ++i)
+            mac << std::hex << std::setw(2) << std::setfill('0')
+            << static_cast<int>(adapters[0].Address[i]);
+        raw += mac.str();
+    }
+
+    return simpleHash(raw);
+}
+
+
+static std::string getLicenseFilePath() {
+    char exePath[MAX_PATH];
+    GetModuleFileNameA(NULL, exePath, MAX_PATH);
+
+    std::string path(exePath);
+    size_t lastSlash = path.find_last_of("\\/");
+    if (lastSlash != std::string::npos)
+        path = path.substr(0, lastSlash + 1);
+
+    return path + "license.txt";
+}
+
+static void saveLicenseKey(const std::wstring& key) {
+    std::ofstream file(getLicenseFilePath());
+    if (file.is_open()) {
+        file << std::string(key.begin(), key.end());
+        file.close();
+    }
+}
+
+static std::wstring loadLicenseKey() {
+    std::ifstream file(getLicenseFilePath());
+    if (!file.is_open()) return L"";
+
+    std::string line;
+    std::getline(file, line);
+    file.close();
+
+    if (line.empty()) return L"";
+    return std::wstring(line.begin(), line.end());
+}
+
+static void deleteLicenseFile() {
+    std::remove(getLicenseFilePath().c_str());
+}
+
+
+
+volatile int g_token = 0;        
+static const int EXPECTED_TOKEN = 1000; 
+
+static std::string readResponse(HINTERNET hReq) {
+    std::string out;
+    DWORD avail = 0;
+    while (WinHttpQueryDataAvailable(hReq, &avail) && avail > 0) {
+        std::string buf(avail, '\0');
+        DWORD read = 0;
+        WinHttpReadData(hReq, &buf[0], avail, &read);
+        out += buf.substr(0, read);
+    }
+    return out;
+}
+
+static std::string extractStringField(const std::string& body,
+    const std::string& fieldName) {
+    std::string key = "\"" + fieldName + "\"";
+    size_t pos = body.find(key);
+    if (pos == std::string::npos) return "";
+
+    size_t svPos = body.find("stringValue", pos);
+    if (svPos == std::string::npos) return "";
+
+    size_t q1 = body.find('"', svPos + 13);
+    if (q1 == std::string::npos) return "";
+
+    size_t q2 = body.find('"', q1 + 1);
+    if (q2 == std::string::npos) return "";
+
+    return body.substr(q1 + 1, q2 - q1 - 1);
+}
+
+static int extractIntField(const std::string& body,
+    const std::string& fieldName) {
+    std::string key = "\"" + fieldName + "\"";
+    size_t pos = body.find(key);
+    if (pos == std::string::npos) return 0;
+
+    size_t ivPos = body.find("integerValue", pos);
+    if (ivPos == std::string::npos) return 0;
+
+    size_t q1 = body.find('"', ivPos + 14);
+    if (q1 == std::string::npos) return 0;
+
+    size_t q2 = body.find('"', q1 + 1);
+    if (q2 == std::string::npos) return 0;
+
+    try { return std::stoi(body.substr(q1 + 1, q2 - q1 - 1)); }
+    catch (...) { return 0; }
+}
+
+static bool isExpired(const std::string& expiryDate) {
+    if (expiryDate.size() < 10) return true;
+
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+
+    int year = std::stoi(expiryDate.substr(0, 4));
+    int month = std::stoi(expiryDate.substr(5, 2));
+    int day = std::stoi(expiryDate.substr(8, 2));
+    int hour = (expiryDate.size() >= 13) ? std::stoi(expiryDate.substr(11, 2)) : 23;
+    int min = (expiryDate.size() >= 16) ? std::stoi(expiryDate.substr(14, 2)) : 59;
+
+    if (st.wYear != year)  return st.wYear > year;
+    if (st.wMonth != month) return st.wMonth > month;
+    if (st.wDay != day)   return st.wDay > day;
+    if (st.wHour != hour)  return st.wHour > hour;
+    return st.wMinute > min;
+}
+
+static std::string calculateExpiry(const std::string& duration) {
+    if (duration.size() < 2) return "";
+
+    int value = 0;
+    try { value = std::stoi(duration.substr(0, duration.size() - 1)); }
+    catch (...) { return ""; }
+
+    char unit = duration.back();
+
+    int extraMinutes = 0;
+    if (unit == 'h') extraMinutes = value * 60;
+    else if (unit == 'd') extraMinutes = value * 60 * 24;
+    else if (unit == 'm') extraMinutes = value * 60 * 24 * 30;
+    else return "";
+
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+
+    FILETIME ft;
+    SystemTimeToFileTime(&st, &ft);
+
+    ULARGE_INTEGER uli;
+    uli.LowPart = ft.dwLowDateTime;
+    uli.HighPart = ft.dwHighDateTime;
+    uli.QuadPart += static_cast<ULONGLONG>(extraMinutes) * 60ULL * 10000000ULL;
+
+    ft.dwLowDateTime = uli.LowPart;
+    ft.dwHighDateTime = uli.HighPart;
+
+    SYSTEMTIME result;
+    FileTimeToSystemTime(&ft, &result);
+
+    char buf[20];
+    sprintf_s(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d",
+        result.wYear, result.wMonth, result.wDay,
+        result.wHour, result.wMinute);
+    return std::string(buf);
+}
+
+static bool saveActivation(const std::wstring& licenseKey,
+    const std::string& hwid,
+    const std::string& expiry) {
+    HINTERNET hSession = WinHttpOpen(L"LicenseChecker/1.0",
+        WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, NULL, NULL, 0);
+    if (!hSession) return false;
+
+    HINTERNET hConnect = WinHttpConnect(hSession,
+        L"firestore.googleapis.com", INTERNET_DEFAULT_HTTPS_PORT, 0);
+    if (!hConnect) { WinHttpCloseHandle(hSession); return false; }
+
+    std::wstring path =
+        L"/v1/projects/" + PROJECT_ID +
+        L"/databases/(default)/documents/" + COLLECTION_NAME + L"/" + licenseKey +
+        L"?updateMask.fieldPaths=hwid&updateMask.fieldPaths=expiry";
+
+    std::string body =
+        R"({"fields":{)"
+        R"("hwid":{"stringValue":")" + hwid + R"("},)"
+        R"("expiry":{"stringValue":")" + expiry + R"("}}})";
+
+    HINTERNET hReq = WinHttpOpenRequest(hConnect, L"PATCH", path.c_str(),
+        NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
+    if (!hReq) {
+        WinHttpCloseHandle(hConnect);
+        WinHttpCloseHandle(hSession);
+        return false;
+    }
+
+    std::wstring headers = L"Content-Type: application/json";
+    bool success = false;
+
+    if (WinHttpSendRequest(hReq, headers.c_str(), static_cast<DWORD>(-1),
+        const_cast<char*>(body.c_str()),
+        static_cast<DWORD>(body.size()),
+        static_cast<DWORD>(body.size()), 0) &&
+        WinHttpReceiveResponse(hReq, NULL))
+    {
+        DWORD code = 0, sz = sizeof(code);
+        WinHttpQueryHeaders(hReq,
+            WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+            NULL, &code, &sz, NULL);
+        success = (code == 200);
+    }
+
+    WinHttpCloseHandle(hReq);
+    WinHttpCloseHandle(hConnect);
+    WinHttpCloseHandle(hSession);
+    return success;
+}
+enum class LicenseStatus {
+    Valid,
+    Invalid,        
+    Expired,        
+    Inactive,      
+    WrongHWID,     
+    NetworkError    
+};
+
+
+static LicenseStatus checkLicense(const std::wstring& licenseKey) {
+    const std::string currentHWID = getHWID();
+
+    HINTERNET hSession = WinHttpOpen(L"LicenseChecker/1.0",
+        WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, NULL, NULL, 0);
+    if (!hSession) return LicenseStatus::NetworkError;
+
+    HINTERNET hConnect = WinHttpConnect(hSession,
+        L"firestore.googleapis.com", INTERNET_DEFAULT_HTTPS_PORT, 0);
+    if (!hConnect) {
+        WinHttpCloseHandle(hSession);
+        return LicenseStatus::NetworkError;
+    }
+
+    std::wstring path =
+        L"/v1/projects/" + PROJECT_ID +
+        L"/databases/(default)/documents/" + COLLECTION_NAME + L"/" + licenseKey;
+
+    HINTERNET hReq = WinHttpOpenRequest(hConnect, L"GET", path.c_str(),
+        NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
+    if (!hReq) {
+        WinHttpCloseHandle(hConnect);
+        WinHttpCloseHandle(hSession);
+        return LicenseStatus::NetworkError;
+    }
+
+    LicenseStatus status = LicenseStatus::Invalid;
+
+    if (WinHttpSendRequest(hReq, WINHTTP_NO_ADDITIONAL_HEADERS,
+        0, NULL, 0, 0, 0) &&
+        WinHttpReceiveResponse(hReq, NULL))
+    {
+        DWORD code = 0, sz = sizeof(code);
+        WinHttpQueryHeaders(hReq,
+            WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+            NULL, &code, &sz, NULL);
+
+        if (code == 200) {
+            std::string body = readResponse(hReq);
+
+            bool isActive = (body.find("\"active\"") != std::string::npos &&
+                body.find("true") != std::string::npos);
+            if (!isActive) {
+                status = LicenseStatus::Inactive;
+            }
+            else {
+                std::string savedHWID = extractStringField(body, "hwid");
+                std::string expiry = extractStringField(body, "expiry");
+
+                if (savedHWID.empty()) {
+                    std::string duration = extractStringField(body, "duration");
+                    std::string computedExpiry = calculateExpiry(duration);
+
+                    if (saveActivation(licenseKey, currentHWID, computedExpiry)) {
+                        int tokenValue = extractIntField(body, "token");
+                        if (tokenValue == EXPECTED_TOKEN) {
+                            g_token = tokenValue; 
+                        }
+                        saveLicenseKey(licenseKey);
+                        std::wcout << L"  License activated on this machine.\n";
+                        if (!computedExpiry.empty()) {
+                            std::wcout << L"  Expires: "
+                                << std::wstring(computedExpiry.begin(),
+                                    computedExpiry.end())
+                                << L"\n";
+                        }
+                        status = LicenseStatus::Valid;
+                    }
+                    else {
+                        status = LicenseStatus::NetworkError;
+                    }
+                }
+                else if (savedHWID == currentHWID) {
+
+                    if (!expiry.empty() && isExpired(expiry)) {
+                        status = LicenseStatus::Expired;
+                    }
+                    else {
+                        int tokenValue = extractIntField(body, "token");
+                        if (tokenValue == EXPECTED_TOKEN) {
+                            g_token = tokenValue; 
+                            status = LicenseStatus::Valid;
+                        }
+                        else {
+                            status = LicenseStatus::Invalid;
+                        }
+                    }
+                }
+                else {
+
+                    status = LicenseStatus::WrongHWID;
+                }
+            }
+        }
+    }
+
+    WinHttpCloseHandle(hReq);
+    WinHttpCloseHandle(hConnect);
+    WinHttpCloseHandle(hSession);
+    return status;
+}
